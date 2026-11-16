@@ -38,7 +38,7 @@ def execute(d,c,agent):
   output={'estado':'storyboard_pendente_renderizacao','versao_origem':v['id'],'formatos':['9:16','16:9'],'cenas':[{'texto':s,'legenda':s,'duracao_estimada_segundos':max(3,round(len(s.split())/2.5)),'ativo':'pendente_aprovacao'} for s in sentences],'voz':'não configurada','musica':'não configurada','direitos':'Verificar antes da renderização'}
  elif agent=='pesquisa':output={'modo':'importacao_manual','fontes':o['sources'],'volume':None,'tendencia':None,'confianca':'A avaliar pelo editor','limitacao':'Sem provedor de pesquisa conectado; nenhuma evidência nova descoberta.'}
  elif agent=='desempenho':
-  metrics=[dict(z) for z in d.execute('SELECT source,start,end,name,value,kind FROM metrics WHERE content_id=?',(c,))]
+  metrics=[dict(z) for z in d.execute('SELECT source,start,"end",name,value,kind FROM metrics WHERE content_id=?',(c,))]
   output={'metricas':metrics,'recomendacao':'Comparar períodos equivalentes antes de recomendar mudanças.' if metrics else 'Importar métricas reais antes de avaliar desempenho.','limitacao':'Não atribui receita nem soma métricas de fontes incompatíveis.'}
- row=d.execute('INSERT INTO runs(content_id,version_id,agent,instruction_version,provider,model,status,input,output,error,cost,cost_kind,units,idempotency,created) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',(c,v['id'] if v else None,agent,'1','local-deterministico','sem-modelo',status,json.dumps(payload,ensure_ascii=False),json.dumps(output,ensure_ascii=False),error,0,'confirmado',0,key,now()))
- return row.lastrowid
+ row=d.execute('INSERT INTO runs(content_id,version_id,agent,instruction_version,provider,model,status,input,output,error,cost,cost_kind,units,idempotency,created) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) RETURNING id',(c,v['id'] if v else None,agent,'1','local-deterministico','sem-modelo',status,json.dumps(payload,ensure_ascii=False),json.dumps(output,ensure_ascii=False),error,0,'confirmado',0,key,now()))
+ return row.fetchone()[0]

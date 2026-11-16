@@ -5,7 +5,8 @@ from http.cookies import SimpleCookie
 from zoneinfo import ZoneInfo
 from domain import *
 from agents import execute,INSTRUCTIONS
-DB=os.environ.get('DATABASE_PATH',str(ROOT/'editorial.db'))
+from storage import INTEGRITY_ERRORS
+DB=os.environ.get('DATABASE_URL') or os.environ.get('DATABASE_PATH',str(ROOT/'editorial.db'))
 def esc(x):
  if isinstance(x,str) and re.match(r'^\d{4}-\d\d-\d\dT.*\+00:00$',x):
   try:x=datetime.datetime.fromisoformat(x).astimezone(ZoneInfo('America/Sao_Paulo')).strftime('%d/%m/%Y %H:%M %Z')
@@ -84,8 +85,8 @@ class Handler(BaseHTTPRequestHandler):
   if path=='/calendario':return card('Agenda editorial · America/Sao_Paulo',self.table(d,'SELECT id,title,planned,responsible,state FROM contents ORDER BY planned')),'Calendário'
   if path=='/analytics':
    body='<p class="warn">Dados ausentes são indisponíveis. Cada métrica mantém fonte e janela. Impressões, sessões e visualizações não são somadas.</p>'
-   body+=card('Métricas importadas',self.table(d,'SELECT content_id,source,start,end,name,value,kind,created FROM metrics ORDER BY id DESC'))
-   body+=card('Importar CSV', '<p>Cabeçalho: content_id,source,start,end,name,value,kind<br>Datas ISO (AAAA-MM-DD), kind: confirmado ou estimado. Uma linha por métrica e período. Reimportações idênticas são ignoradas.</p>'+self.form('metrics',field('csv','Cole o CSV','textarea')));return body,'Analytics'
+   body+=card('Métricas importadas',self.table(d,'SELECT content_id,source,start,"end",name,value,kind,created FROM metrics ORDER BY id DESC'))
+   body+=card('Importar CSV', '<p>Cabeçalho: content_id,source,start,"end",name,value,kind<br>Datas ISO (AAAA-MM-DD), kind: confirmado ou estimado. Uma linha por métrica e período. Reimportações idênticas são ignoradas.</p>'+self.form('metrics',field('csv','Cole o CSV','textarea')));return body,'Analytics'
   if path=='/agentes':
    body='<p class="warn">Modo manual estruturado. Não há chamadas de IA, pesquisa conectada ou execução externa habilitada. Custos reais só são registrados quando comprovados.</p>'
    body+=card('Módulos especializados',''.join('<span class="tag">'+a+' · instruções v1 · provedor pendente</span>' for a in ['Pesquisa','Estratégia','Redação','Imagens','Vídeo','Revisão','Desempenho']))
@@ -113,7 +114,7 @@ class Handler(BaseHTTPRequestHandler):
   elif path=='/portal':
    query=urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query);term=query.get('q',[''])[0];cat=query.get('categoria',[''])[0]
    body+='<form><input name="q" placeholder="Buscar no portal" value="'+esc(term)+'"><button>Buscar</button></form><p>'+''.join('<a class="tag" href="/portal?categoria='+urllib.parse.quote(r[0])+'">'+esc(r[0])+'</a>' for r in d.execute('SELECT DISTINCT o.category FROM publications p JOIN contents c ON c.id=p.content_id JOIN opportunities o ON o.id=c.opportunity_id'))+'</p><div class="grid">'
-   rows=d.execute('SELECT v.title,v.body,c.slug,o.category FROM publications p JOIN versions v ON v.id=p.version_id JOIN contents c ON c.id=p.content_id JOIN opportunities o ON o.id=c.opportunity_id WHERE (v.title LIKE ? OR v.body LIKE ?) AND (?="" OR o.category=?)',('%'+term+'%','%'+term+'%',cat,cat)).fetchall()
+   rows=d.execute("SELECT v.title,v.body,c.slug,o.category FROM publications p JOIN versions v ON v.id=p.version_id JOIN contents c ON c.id=p.content_id JOIN opportunities o ON o.id=c.opportunity_id WHERE (v.title LIKE ? OR v.body LIKE ?) AND (?='' OR o.category=?)",('%'+term+'%','%'+term+'%',cat,cat)).fetchall()
    body+=''.join(card(r['title'],'<span class="tag">'+esc(r['category'])+'</span><p>'+esc(r['body'][:180])+'…</p><a href="/portal/'+esc(r['slug'])+'">Ler artigo →</a>') for r in rows)+'</div>'
    if not rows:body+='<p>Nenhum conteúdo publicado para esta busca.</p>'
   else:
@@ -154,7 +155,7 @@ class Handler(BaseHTTPRequestHandler):
      o=d.execute('SELECT * FROM opportunities WHERE id=?',(c,)).fetchone()
      if not o:raise ValueError('Oportunidade inexistente.')
      d.execute('UPDATE opportunities SET status=?,priority=? WHERE id=?',(f('status'),f('reason'),c))
-     if f('status')=='aprovada':d.execute('INSERT OR IGNORE INTO contents(opportunity_id,title,slug) VALUES(?,?,?)',(c,o['title'],'pauta-'+str(c)))
+     if f('status')=='aprovada':d.execute('INSERT INTO contents(opportunity_id,title,slug) VALUES(?,?,?) ON CONFLICT DO NOTHING',(c,o['title'],'pauta-'+str(c)))
      dest='/editorial'
     elif action=='brief':
      if not f('brief').strip():raise ValueError('Preencha o brief.')
@@ -180,7 +181,7 @@ class Handler(BaseHTTPRequestHandler):
       import math
       if end<start or not math.isfinite(value) or value<0 or r['kind'] not in ('estimado','confirmado') or not r['source'].strip():raise ValueError('Métrica inválida.')
       key=hashlib.sha256(json.dumps(r,sort_keys=True).encode()).hexdigest()
-      d.execute('INSERT OR IGNORE INTO metrics(content_id,source,start,end,name,value,kind,import_key,created) VALUES(?,?,?,?,?,?,?,?,?)',(cid,r['source'],str(start),str(end),r['name'],value,r['kind'],key,now()))
+      d.execute('INSERT INTO metrics(content_id,source,start,"end",name,value,kind,import_key,created) VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT DO NOTHING',(cid,r['source'],str(start),str(end),r['name'],value,r['kind'],key,now()))
      dest='/analytics'
     elif action=='settings':
      weights=json.loads(f('weights'));ranking([None]*5,weights)
@@ -192,7 +193,7 @@ class Handler(BaseHTTPRequestHandler):
      d.execute('INSERT INTO users(email,password,role) VALUES(?,?,?)',(f('email').strip().lower(),password(f('password')),f('role')));dest='/configuracoes'
     else:raise ValueError('Operação desconhecida.')
     audit(d,u,action,c);d.commit();return self.redirect(dest)
-   except (ValueError,KeyError,TypeError,sqlite3.IntegrityError) as e:
+   except (ValueError,KeyError,TypeError)+INTEGRITY_ERRORS as e:
     d.rollback()
     d.execute('INSERT INTO runs(content_id,agent,instruction_version,provider,status,error,cost,cost_kind,created) VALUES(?,?,?,?,?,?,?,?,?)',(c if d.execute('SELECT 1 FROM contents WHERE id=?',(c,)).fetchone() else None,action,'v1','manual','falha',str(e),0,'confirmado',now()));d.commit()
     return self.send(self.page('Operação não concluída','<p class="error">'+esc(e)+'</p><a href="/editorial">Voltar à central</a>'),400)

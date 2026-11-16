@@ -1,5 +1,4 @@
-# Plano pago necessário: SQLite usa disco persistente.
-# Revise o plano no Render antes de aplicar.
+# Plano gratuito de avaliação. Postgres gratuito expira em 30 dias.
 projects:
   - name: casa-verde-editorial
     environments:
@@ -8,26 +7,31 @@ projects:
           - type: web
             name: casa-verde-editorial
             runtime: python
-            plan: 0.5c-512mb
+            plan: free
             region: virginia
             repo: https://github.com/Jairakson/casa-verde-editorial
             branch: main
-            buildCommand: python -m unittest discover -s tests -v
+            buildCommand: pip install -r requirements.txt && python -m unittest discover -s tests -v
             startCommand: python app.py serve
             healthCheckPath: /healthz
             numInstances: 1
-            disk:
-              name: editorial-data
-              mountPath: /var/data
-              sizeGB: 1
             envVars:
               - key: HOST
                 value: 0.0.0.0
-              - key: DATABASE_PATH
-                value: /var/data/editorial.db
+              - key: DATABASE_URL
+                fromDatabase:
+                  name: casa-verde-editorial-db
+                  property: connectionString
               - key: COOKIE_SECURE
                 value: "1"
               - key: ADMIN_EMAIL
-                sync: false
+                value: admin@casa-verde.local
               - key: ADMIN_PASSWORD
-                sync: false
+                generateValue: true
+        databases:
+          - name: casa-verde-editorial-db
+            plan: free
+            region: virginia
+            databaseName: casa_verde_editorial
+            user: casa_verde
+            ipAllowList: []

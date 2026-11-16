@@ -19,7 +19,7 @@ class HTTP(unittest.TestCase):
   except urllib.error.HTTPError as e:return e.code,e.read().decode()
  def identity(self,role):
   with app.connect(app.DB) as d:
-   uid=d.execute('SELECT id FROM users WHERE role=?',(role,)).fetchone()[0];d.execute('INSERT OR REPLACE INTO sessions VALUES(?,?,?,?)',(role,uid,'csrf',app.time.time()+60))
+   uid=d.execute('SELECT id FROM users WHERE role=?',(role,)).fetchone()[0];d.execute('INSERT INTO sessions VALUES(?,?,?,?) ON CONFLICT(token) DO UPDATE SET user_id=excluded.user_id,csrf=excluded.csrf,expires=excluded.expires',(role,uid,'csrf',app.time.time()+60))
   return 'session='+role
  def test_anonymous(self):self.assertIn('Entrar',self.request('/editorial')[1]);self.assertEqual(self.request('/action',{'action':'publish'})[0],401)
  def test_csrf(self):self.assertEqual(self.request('/action',{'action':'settings'},self.identity('admin'))[0],403)

@@ -1,11 +1,14 @@
 # Casa & Verde — central editorial
 
-Implementação inicial executável, Python 3.11+ e SQLite, sem dependências de terceiros.
+Implementação inicial executável em Python 3.11+. PostgreSQL no Render via psycopg; SQLite opcional para testes e desenvolvimento local.
 Interface pt-BR. Posicionamento: decoração acessível e plantas para espaços pequenos.
 
 ## Executar
 
 ```sh
+python -m venv .venv
+. .venv/bin/activate
+pip install -r requirements.txt
 python app.py init --email voce@example.com
 # Informe uma senha de pelo menos 12 caracteres no prompt, sem expô-la no terminal.
 python app.py serve --port 8000
@@ -59,14 +62,14 @@ Esta é uma base funcional local; não conclui todos os requisitos da plataforma
 - **Editorial:** sem comentários, notificações, quadro arrastável, comparação visual de versões, consolidação automática, agendamento executável ou arquivamento. Datas planejadas são operacionais; publicar sempre exige ação manual.
 - **Portal:** sem adaptador de CMS externo, metadados SEO por artigo, URLs canônicas configuráveis, página de autor própria ou relacionados automáticos. Sitemap usa origem local HTTP; configurar origem e HTTPS antes de hospedar.
 - **Segurança/produção:** sem recuperação de senha, MFA, revogação/logout na interface ou proteção persistente/distribuída de login. Escopo inicial de único portal; não é multi-tenant. Backup, TLS, monitoração e servidor de produção são pendentes.
-- **Publicação da aplicação:** não hospedada. A habilidade Sites foi consultada; o ambiente não contém os helpers/starter de publicação. A arquitetura local Python não é um Worker Cloudflare e exige implantação compatível ou adaptação.
+- **Publicação da aplicação:** a habilidade Sites foi consultada; o ambiente não contém os helpers/starter de publicação. A arquitetura Python usa Render com PostgreSQL. O estado efetivo da implantação deve ser confirmado no Dashboard; a existência do Blueprint não comprova publicação.
 - Testes automatizados passaram; não foi realizada inspeção visual em navegador.
 
 ## Arquitetura
 
-`app.py`: HTTP, HTML escapado, autenticação, autorização e formulários. `domain.py`: invariantes editoriais, ranking, revisão/aprovação/publicação. `agents.py`: módulos especializados locais sem ferramentas externas. `migrations/001_initial.sql`: esquema. `tests/`: verificações essenciais.
+`app.py`: HTTP, HTML escapado, autenticação, autorização e formulários. `domain.py`: invariantes editoriais, ranking, revisão/aprovação/publicação. `agents.py`: módulos especializados locais sem ferramentas externas. `storage.py`: adaptadores de persistência. `migrations/postgres/001_initial.sql`: esquema PostgreSQL versionado; `migrations/001_initial.sql`: esquema SQLite local. `tests/`: verificações essenciais.
 
-Persistência: uma transação SQLite por ação; `BEGIN IMMEDIATE` serializa mutações. Versões são append-only na aplicação. Publicação referencia uma versão imutável e tem unicidade por conteúdo. Uma aprovação antiga continua na auditoria mas nunca autoriza uma nova versão. A revisão mais recente determina elegibilidade. Falha reverte a operação e é registrada separadamente.
+Persistência: uma transação por ação; PostgreSQL usa advisory lock transacional para serializar mutações editoriais. SQLite local usa `BEGIN IMMEDIATE`. Versões são append-only na aplicação. Publicação referencia uma versão imutável e tem unicidade por conteúdo. Uma aprovação antiga continua na auditoria mas nunca autoriza uma nova versão. A revisão mais recente determina elegibilidade. Falha reverte a operação e é registrada separadamente.
 
 Dados externos são tratados como texto e escapados no HTML; não há execução de HTML, comandos, instruções de fontes ou requisições de rede. URLs não são buscadas pelo servidor. Histórico usa UTC ISO; o planejamento é interpretado como horário de São Paulo. Timestamps ISO de histórico são formatados em America/Sao_Paulo na interface; saídas JSON preservam UTC para rastreabilidade.
 
@@ -76,12 +79,29 @@ A evolução recomendada separa transporte do domínio, adiciona migrations incr
 
 18 testes automatizados passaram, incluindo fluxo HTTP completo de oportunidade até publicação e métricas, bloqueios, permissões, CSRF, imutabilidade das versões e idempotência. Testes usam bancos temporários; nenhuma publicação de demonstração é criada no banco de operação. Sem QA visual em navegador.
 
-## Render
+## Render — gratuito, sem SQLite
 
-`render.yaml` define um serviço Python no projeto `casa-verde-editorial`, ambiente `Production`, região Virginia, uma instância no plano `0.5c-512mb` e disco persistente de 1 GB em `/var/data`. Esse plano é pago; revisar o custo no Render antes de aplicar. Não usar SQLite em filesystem efêmero para dados reais. A migração roda no início do processo, quando o disco está montado, nunca no build.
+O Blueprint usa o projeto `casa-verde-editorial`, ambiente `Production`, região Virginia:
 
-O build executa os testes. `HOST=0.0.0.0` e `PORT` fornecida pelo Render permitem roteamento. `/healthz` verifica acesso ao esquema. Cookies são Secure em HTTPS. SIGTERM encerra a aceitação de requisições; manter apenas uma instância para o SQLite local.
+- Serviço web `casa-verde-editorial`, plano **free**, sem disco.
+- Banco PostgreSQL `casa-verde-editorial-db`, plano **free**, conexão interna via `DATABASE_URL` e acesso público ao banco bloqueado (`ipAllowList: []`).
+- Build instala `requirements.txt` e executa testes locais. Migração PostgreSQL é aplicada uma única vez no início do serviço, protegida por lock transacional e registrada em `schema_migrations`.
+- `HOST=0.0.0.0`, porta fornecida pelo Render, cookies Secure e health check `/healthz` com consulta ao banco. SIGTERM encerra o servidor.
+- Login inicial: `admin@casa-verde.local`. O Render gera `ADMIN_PASSWORD` automaticamente; consulte o valor apenas no Environment do serviço, sem copiar para chat ou repositório. Após validar o primeiro login, remova a variável de senha. Reinícios não redefinem credenciais existentes.
 
-Definir `ADMIN_EMAIL` e `ADMIN_PASSWORD` (12+ caracteres) exclusivamente no Environment do serviço. Só são usados para criar a primeira conta em banco vazio; redeploy não redefine a senha. Depois de criar e testar a conta, remover `ADMIN_PASSWORD` do Environment. Nunca registrar senha em código, terminal ou logs.
+**Limites verificados na documentação oficial do Render:** o PostgreSQL gratuito expira 30 dias após criação e não inclui backups. Há prazo de 14 dias após expiração para upgrade; depois o banco é excluído. Exporte seus dados antes da expiração. O serviço web pode suspender por inatividade e demorar para responder ao reativar. Workspace tem limite compartilhado de 750 horas gratuitas por mês e apenas um PostgreSQL gratuito ativo. Esses planos são para avaliação, não produção permanente.
 
-O servidor HTTP deste MVP continua sendo o servidor da biblioteca padrão Python, apropriado para validação inicial controlada atrás do proxy TLS do Render. A migração para servidor/framework de produção, limitação persistente de login e backups SQLite consistentes continua necessária antes de operação pública de maior escala. A conexão do repositório não ativa provedores de IA nem remove os limites documentados.
+O servidor HTTP deste MVP usa a biblioteca padrão Python atrás do proxy TLS do Render. A migração para servidor/framework de produção, limitação persistente de login e backups continua necessária antes de operação pública de maior escala. Conectar o repositório não habilita IA ou outras integrações.
+
+SQLite permanece opcional no código para testes locais. Quando `DATABASE_URL` está configurada, somente PostgreSQL é utilizado; não há arquivo SQLite no serviço Render. Este projeto ainda não tem ferramenta de migração de registros SQLite existentes para PostgreSQL; o primeiro banco remoto inicia vazio.
+
+## Testes PostgreSQL
+
+A suíte `tests/test_postgres.py` valida migração, aprovação, versionamento, idempotência, permissões, CSRF e fluxo HTTP completo em PostgreSQL real. Execute somente contra um banco descartável: ela limpa as tabelas da aplicação desse banco.
+
+```sh
+# Defina TEST_POSTGRES_URL com a URL do banco descartável, somente no ambiente.
+python -m unittest discover -s tests -v
+```
+
+Sem `TEST_POSTGRES_URL`, 14 testes de PostgreSQL são explicitamente pulados e os 21 testes locais continuam ativos. Com um banco descartável PostgreSQL 16, todos os 35 testes foram executados. Não definir `DATABASE_URL` com um banco real para rodar a suíte; a aplicação usa essa variável em runtime.

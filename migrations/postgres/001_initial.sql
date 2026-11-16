@@ -1,0 +1,15 @@
+CREATE TABLE users(id SERIAL PRIMARY KEY,email TEXT UNIQUE NOT NULL,password TEXT NOT NULL,role TEXT NOT NULL CHECK(role IN ('admin','editor','reviewer')));
+CREATE TABLE sessions(token TEXT PRIMARY KEY,user_id INTEGER REFERENCES users,csrf TEXT,expires DOUBLE PRECISION);
+CREATE TABLE opportunities(id SERIAL PRIMARY KEY,title TEXT,category TEXT,kind TEXT,keyword TEXT,sources TEXT,scores TEXT,priority TEXT,status TEXT DEFAULT 'identificada',created TEXT);
+CREATE TABLE contents(id SERIAL PRIMARY KEY,opportunity_id INTEGER UNIQUE REFERENCES opportunities,title TEXT,slug TEXT UNIQUE,state TEXT DEFAULT 'pauta_aprovada',current_version INTEGER DEFAULT 0,brief TEXT DEFAULT '',responsible TEXT DEFAULT '',planned TEXT);
+CREATE TABLE versions(id SERIAL PRIMARY KEY,content_id INTEGER REFERENCES contents,number INTEGER,title TEXT,body TEXT,claims TEXT,created TEXT,author INTEGER REFERENCES users,UNIQUE(content_id,number));
+CREATE TABLE reviews(id SERIAL PRIMARY KEY,version_id INTEGER REFERENCES versions,reviewer INTEGER REFERENCES users,result TEXT,issues TEXT,limitations TEXT,created TEXT);
+CREATE TABLE approvals(version_id INTEGER PRIMARY KEY REFERENCES versions,user_id INTEGER REFERENCES users,created TEXT);
+CREATE TABLE publications(id SERIAL PRIMARY KEY,content_id INTEGER UNIQUE REFERENCES contents,version_id INTEGER REFERENCES versions,created TEXT,destination TEXT);
+CREATE TABLE metrics(id SERIAL PRIMARY KEY,content_id INTEGER REFERENCES contents,source TEXT,start TEXT,"end" TEXT,name TEXT,value DOUBLE PRECISION,kind TEXT,import_key TEXT UNIQUE,created TEXT);
+CREATE TABLE runs(id SERIAL PRIMARY KEY,content_id INTEGER REFERENCES contents,version_id INTEGER REFERENCES versions,agent TEXT,instruction_version TEXT,provider TEXT,model TEXT,status TEXT,input TEXT,output TEXT,error TEXT,cost DOUBLE PRECISION,cost_kind TEXT,units INTEGER,idempotency TEXT UNIQUE,created TEXT);
+CREATE TABLE assets(id SERIAL PRIMARY KEY,content_id INTEGER REFERENCES contents,version_id INTEGER REFERENCES versions,kind TEXT,origin TEXT,license TEXT,reference TEXT,alt TEXT,status TEXT,required INTEGER DEFAULT 0);
+CREATE TABLE audit(id SERIAL PRIMARY KEY,user_id INTEGER,action TEXT,entity TEXT,data TEXT,created TEXT);
+CREATE TABLE settings(key TEXT PRIMARY KEY,value TEXT);
+INSERT INTO settings VALUES('weights','[25,25,20,20,10]');
+INSERT INTO settings VALUES('budget','10');

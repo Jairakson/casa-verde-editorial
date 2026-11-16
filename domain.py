@@ -3,10 +3,7 @@ from pathlib import Path
 ROOT=Path(__file__).parent
 CRITERIA=['Demanda e tendência','Oportunidade na busca','Monetização','Originalidade','Aderência editorial']
 def now(): return datetime.datetime.now(datetime.timezone.utc).isoformat()
-def connect(path):
- d=sqlite3.connect(path);d.row_factory=sqlite3.Row;d.execute('PRAGMA foreign_keys=ON');return d
-def migrate(d):
- if d.execute('PRAGMA user_version').fetchone()[0]==0:d.executescript((ROOT/'migrations/001_initial.sql').read_text())
+from storage import connect,migrate
 def ranking(scores,weights):
  if len(scores)!=5 or len(weights)!=5 or sum(weights)!=100 or any(w<0 for w in weights):raise ValueError('Pesos devem somar 100 e conter cinco critérios.')
  if any(s is not None and (not isinstance(s,(int,float)) or not 0<=s<=100) for s in scores):raise ValueError('Notas devem estar entre 0 e 100 ou vazias.')
@@ -40,7 +37,7 @@ def eligible(d,c):
  if d.execute("SELECT 1 FROM assets WHERE content_id=? AND required=1 AND (status!='aprovado' OR version_id!=? OR version_id IS NULL)",(c,v['id'])).fetchone():raise ValueError('Ativos obrigatórios pendentes ou desatualizados.')
  return x,v
 def approve(d,c,u):
- x,v=eligible(d,c);d.execute('INSERT OR REPLACE INTO approvals VALUES(?,?,?)',(v['id'],u,now()));audit(d,u,'aprovacao_humana',v['id'])
+ x,v=eligible(d,c);d.execute('INSERT INTO approvals VALUES(?,?,?) ON CONFLICT(version_id) DO UPDATE SET user_id=excluded.user_id,created=excluded.created',(v['id'],u,now()));audit(d,u,'aprovacao_humana',v['id'])
 def publish(d,c,u):
  x,v=eligible(d,c)
  if not d.execute('SELECT 1 FROM approvals WHERE version_id=?',(v['id'],)).fetchone():raise ValueError('Aprovação humana da versão exata é obrigatória.')
