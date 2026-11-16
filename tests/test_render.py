@@ -20,6 +20,8 @@ class Render(unittest.TestCase):
   with socket.socket() as sock:sock.bind(('127.0.0.1',0));port=sock.getsockname()[1]
   with tempfile.TemporaryDirectory() as tmp:
    env=dict(os.environ,DATABASE_PATH=tmp+'/app.db',PORT=str(port),HOST='127.0.0.1',ADMIN_EMAIL='admin@example.com',ADMIN_PASSWORD='test-password-long')
+   env['DATABASE_URL']='postgresql://unreachable.invalid/test_must_not_connect'
+   env.pop('DATABASE_URL',None)  # Nunca permitir que o subprocesso de teste acesse o banco de runtime.
    proc=subprocess.Popen([sys.executable,'app.py','serve'],env=env,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
    try:
     for i in range(50):
@@ -31,3 +33,21 @@ class Render(unittest.TestCase):
     proc.terminate();self.assertEqual(proc.wait(timeout=5),0)
    finally:
     if proc.poll() is None:proc.kill();proc.wait()
+
+class BuildIsolationRepair(unittest.TestCase):
+ def test_repair_exact_test_account_and_revoke_sessions(self):
+  with app.connect(':memory:') as d:
+   app.migrate(d)
+   d.execute("INSERT INTO users VALUES(1,'admin@example.com',?,'admin')",(app.password('test-password-long'),))
+   d.execute("INSERT INTO sessions VALUES('old',1,'csrf',9999999999)")
+   self.assertTrue(app.repair_build_bootstrap(d,'admin@casa-verde.local','new-strong-password'))
+   self.assertEqual(d.execute('SELECT email FROM users').fetchone()[0],'admin@casa-verde.local')
+   self.assertEqual(d.execute('SELECT count(*) FROM sessions').fetchone()[0],0)
+   self.assertFalse(app.repair_build_bootstrap(d,'admin@casa-verde.local','new-strong-password'))
+ def test_preserve_real_account(self):
+  with app.connect(':memory:') as d:
+   app.migrate(d)
+   saved=app.password('a-real-different-password')
+   d.execute("INSERT INTO users VALUES(1,'admin@example.com',?,'admin')",(saved,))
+   self.assertFalse(app.repair_build_bootstrap(d,'admin@casa-verde.local','new-strong-password'))
+   self.assertEqual(d.execute('SELECT password FROM users').fetchone()[0],saved)

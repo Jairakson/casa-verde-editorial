@@ -198,11 +198,25 @@ class Handler(BaseHTTPRequestHandler):
     d.execute('INSERT INTO runs(content_id,agent,instruction_version,provider,status,error,cost,cost_kind,created) VALUES(?,?,?,?,?,?,?,?,?)',(c if d.execute('SELECT 1 FROM contents WHERE id=?',(c,)).fetchone() else None,action,'v1','manual','falha',str(e),0,'confirmado',now()));d.commit()
     return self.send(self.page('Operação não concluída','<p class="error">'+esc(e)+'</p><a href="/editorial">Voltar à central</a>'),400)
 LOGIN_ATTEMPTS={}
+def repair_build_bootstrap(d,email,pw):
+ # Repara apenas a conta exata criada pelo teste da primeira implantação.
+ # Preserva ID/referências e revoga sessões; não altera contas de usuários reais.
+ candidate=d.execute("SELECT * FROM users WHERE email='admin@example.com'").fetchone()
+ if not candidate or '@' not in email or len(pw)<12:return False
+ stored=candidate['password']
+ if not hmac.compare_digest(password('test-password-long',stored.split(':')[0]),stored):return False
+ if email==candidate['email']:raise ValueError('Configure um e-mail administrativo diferente da conta de teste.')
+ if d.execute('SELECT 1 FROM users WHERE email=?',(email,)).fetchone():raise ValueError('Revisar contas administrativas antes da reparação.')
+ d.execute('DELETE FROM sessions WHERE user_id=?',(candidate['id'],))
+ d.execute('UPDATE users SET email=?,password=? WHERE id=?',(email,password(pw),candidate['id']))
+ audit(d,candidate['id'],'bootstrap_isolation_repair',candidate['id'])
+ return True
 def bootstrap_admin(d):
- # Só cria a primeira conta; reinícios não alteram senha nem usuários existentes.
- if d.execute('SELECT 1 FROM users LIMIT 1').fetchone():return
+ # Só cria a primeira conta; reinícios não alteram credenciais existentes.
  email=os.environ.get('ADMIN_EMAIL','').strip().lower()
  pw=os.environ.get('ADMIN_PASSWORD','')
+ if getattr(d,'postgres',False) and repair_build_bootstrap(d,email,pw):d.commit()
+ if d.execute('SELECT 1 FROM users LIMIT 1').fetchone():return
  if not email and not pw:return
  if '@' not in email or len(pw)<12:raise ValueError('Configure ADMIN_EMAIL e ADMIN_PASSWORD com pelo menos 12 caracteres.')
  d.execute('INSERT INTO users(email,password,role) VALUES(?,?,?)',(email,password(pw),'admin'))
