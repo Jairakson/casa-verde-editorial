@@ -133,3 +133,11 @@ O Google usa o script oficial assíncrono. Quando anúncios Google estão ativos
 `portal.py` concentra composição pública e configuração; `static/portal.css` contém o layout responsivo; `static/garden.svg` é uma ilustração vetorial original, não uma foto de projeto executado. As configurações usam a tabela `settings` existente e não exigem migração de esquema. O sitemap e as canônicas usam `PUBLIC_SITE_URL`, `RENDER_EXTERNAL_URL` ou a origem padrão do projeto. HTML de artigos é escapado; há suporte limitado a títulos, parágrafos, listas, negrito e links Markdown HTTPS.
 
 Verificação inclui fluxo HTTP, exclusividade do dashboard para administradores, persistência/validação de anúncios, CSRF, isolamento entre versão publicada e rascunho, leitura integral e CSP/nonce. A infraestrutura de controle visual do navegador não está disponível neste ambiente; não houve inspeção visual automatizada.
+
+## Interface com prioridade para celular
+
+Portal e painel mantêm as cores verdes e naturais, com superfícies arredondadas, controles de toque maiores, foco de teclado visível e suporte a redução de movimento. O portal apresenta leitura em uma coluna no celular, cartões maiores, busca confortável e menu compacto nativo; grades e navegação se expandem em telas maiores.
+
+O painel usa `static/admin.css`, menu compacto e atalhos inferiores com espaço para a área segura do aparelho. Campos usam fonte de 16 px para evitar ampliação automática em navegadores móveis. As tabelas recebem cabeçalhos e rótulos por célula: no celular são apresentadas como cartões; no desktop preservam a tabela com rolagem interna quando necessário. As seis configurações de anúncio podem ser abertas individualmente e mostram seu modo atual sem expandir o formulário.
+
+Menus e painéis recolhíveis utilizam elementos HTML nativos, sem depender de JavaScript nem alterar as permissões ou a publicação. Os testes de rotas, formulários e autorização foram executados; não houve inspeção visual em navegador ou aparelho móvel, pois o controle de navegador não está disponível neste ambiente.
