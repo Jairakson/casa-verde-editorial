@@ -7,6 +7,7 @@ from domain import *
 from agents import execute,INSTRUCTIONS
 from storage import INTEGRITY_ERRORS
 import connector_backend as bridge
+import portal
 DB=os.environ.get('DATABASE_URL') or os.environ.get('DATABASE_PATH',str(ROOT/'editorial.db'))
 def esc(x):
  if isinstance(x,str) and re.match(r'^\d{4}-\d\d-\d\dT.*\+00:00$',x):
@@ -18,13 +19,13 @@ def password(p,salt=None):
  return salt+':'+hashlib.scrypt(p.encode(),salt=salt.encode(),n=16384,r=8,p=1).hex()
 def field(name,label,kind='text',value=''):
  return f'<label>{label}<'+('textarea' if kind=='textarea' else 'input')+f' name="{name}" '+('>'+esc(value)+'</textarea>' if kind=='textarea' else f'type="{kind}" value="{esc(value)}">')+'</label>'
-def select(name,label,options):return '<label>'+label+f'<select name="{name}">'+''.join(f'<option value="{esc(k)}">{esc(v)}</option>' for k,v in options)+'</select></label>'
+def select(name,label,options,value=None):return '<label>'+label+f'<select name="{name}">'+''.join(f'<option value="{esc(k)}"'+(' selected' if k==value else '')+f'>{esc(v)}</option>' for k,v in options)+'</select></label>'
 def card(title,body):return '<section class="card"><h2>'+esc(title)+'</h2>'+body+'</section>'
 CSS='''*{box-sizing:border-box}body{margin:0;background:#f5f5ef;color:#243d32;font:15px system-ui}a{color:inherit}aside{position:fixed;inset:0 auto 0 0;width:230px;background:#173e32;color:#edf4e6;padding:30px 23px}aside h1{font:30px Georgia;margin:0 0 8px}aside small{color:#acc4b5}nav{margin-top:40px}nav a{display:block;padding:13px;border-radius:8px;text-decoration:none;margin:4px 0}nav a:hover,nav a.active{background:#315747}main{margin-left:230px;padding:38px 48px;max-width:1600px}h1{font:38px Georgia;margin:8px 0 14px}h2{font:24px Georgia;margin:0 0 20px}h3{font:21px Georgia}p{line-height:1.65}.eyebrow{text-transform:uppercase;letter-spacing:2px;font-size:11px;color:#687e66}.top{display:flex;justify-content:space-between;align-items:center;margin-bottom:35px}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:20px}.card{padding:26px;background:white;border:1px solid #e1e6da;border-radius:12px;margin-bottom:22px}.stat{font:38px Georgia;color:#24533c}.muted,small{color:#6c7b70}.tag{display:inline-block;font-size:11px;background:#e9efdb;border-radius:20px;padding:6px 10px;margin:3px}.warn{background:#fff1cf;color:#775b20;padding:14px;border-radius:8px}button,.button{background:#27563e;color:white;padding:11px 17px;border:0;border-radius:7px;cursor:pointer;text-decoration:none;display:inline-block;font:inherit}button:hover{background:#173e32}label{display:block;font-size:13px;margin:14px 0}input,textarea,select{display:block;width:100%;border:1px solid #ccd6c9;background:#fafcf7;padding:11px;border-radius:6px;font:inherit;margin-top:7px;color:#243d32}textarea{min-height:130px;resize:vertical}table{width:100%;border-collapse:collapse}td,th{text-align:left;padding:14px 10px;border-bottom:1px solid #edf0e7;vertical-align:top}th{font-size:11px;text-transform:uppercase;letter-spacing:1px;color:#6c7b70}.actions{display:flex;gap:10px;flex-wrap:wrap}details{margin:15px 0}summary{cursor:pointer;font-weight:600}pre{white-space:pre-wrap;word-break:break-word;font:14px system-ui;line-height:1.7}article{max-width:850px;margin:auto}footer{margin:30px 0;color:#6c7b70;font-size:12px}.hero{background:#e8eddd;padding:32px;border-radius:12px;margin-bottom:25px}.error{padding:15px;background:#ffe5dd;border-radius:8px}@media(max-width:800px){aside{position:relative;width:auto;padding:20px}nav{display:flex;overflow:auto;margin-top:16px}nav a{white-space:nowrap;padding:8px}main{margin:0;padding:23px}table{display:block;overflow:auto}.top{display:block}}'''
 class Handler(BaseHTTPRequestHandler):
  def log_message(self,*args):pass
- def send(self,body,status=200,ctype='text/html; charset=utf-8',cookie=None):
-  self.send_response(status);self.send_header('Content-Type',ctype);self.send_header('X-Content-Type-Options','nosniff');self.send_header('Referrer-Policy','same-origin');self.send_header('Cache-Control','no-store');self.send_header('Content-Security-Policy',"default-src 'self'; style-src 'self' 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'")
+ def send(self,body,status=200,ctype='text/html; charset=utf-8',cookie=None,csp=None):
+  self.send_response(status);self.send_header('Content-Type',ctype);self.send_header('X-Content-Type-Options','nosniff');self.send_header('Referrer-Policy','same-origin');self.send_header('Cache-Control','no-store');self.send_header('Content-Security-Policy',csp or "default-src 'self'; style-src 'self' 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'")
   if cookie:self.send_header('Set-Cookie',cookie)
   self.end_headers();self.wfile.write(body.encode())
  def redirect(self,url,cookie=None):
@@ -40,7 +41,8 @@ class Handler(BaseHTTPRequestHandler):
   return f'<form method="post" action="/action"><input type="hidden" name="action" value="{action}"><input type="hidden" name="csrf" value="{self.s["csrf"]}">'+body+f'<button>{label}</button></form>'
  def hidden(self,c):return f'<input type="hidden" name="id" value="{c}">'
  def page(self,title,body,tab=''):
-  nav=[('/','Visão geral'),('/oportunidades','Oportunidades'),('/editorial','Central editorial'),('/midia','Biblioteca de mídia'),('/calendario','Calendário'),('/analytics','Analytics'),('/agentes','Agentes e execuções'),('/conector','Conector ChatGPT Plus'),('/configuracoes','Configurações'),('/portal','Ver portal')]
+  nav=[('/admin','Visão geral'),('/anuncios','Portal e anúncios'),('/oportunidades','Oportunidades'),('/editorial','Central editorial'),('/midia','Biblioteca de mídia'),('/calendario','Calendário'),('/analytics','Analytics'),('/agentes','Agentes e execuções'),('/conector','Conector ChatGPT Plus'),('/configuracoes','Configurações'),('/portal','Ver portal')]
+  if getattr(self,'s',None) and self.s['role']!='admin':nav=[(u,l) for u,l in nav if u not in ('/admin','/anuncios')]
   return '<!doctype html><html lang="pt-BR"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>'+esc(title)+' · Casa & Verde</title><style>'+CSS+'</style><aside><h1>casa & verde<span style="color:#b5cb85">.</span></h1><small>CENTRAL EDITORIAL</small><nav>'+''.join(f'<a class="{"active" if tab==u else ""}" href="{u}">{l}</a>' for u,l in nav)+'</nav></aside><main><div class="top"><span class="eyebrow">Seu próximo conteúdo começa aqui</span><span class="muted">'+esc(self.s['email'] if getattr(self,'s',None) else 'Portal de casa e jardim')+'</span></div><h1>'+esc(title)+'</h1>'+body+'<footer>Casa bonita e verde · Horários: America/Sao_Paulo · ChatGPT Plus: conector local opcional</footer></main></html>'
  def do_GET(self):
   with connect(DB) as d:
@@ -48,12 +50,18 @@ class Handler(BaseHTTPRequestHandler):
    if path=='/healthz':
     d.execute('SELECT 1 FROM users LIMIT 1').fetchone()
     return self.send('ok',ctype='text/plain; charset=utf-8')
-   if path.startswith('/portal') or path=='/sitemap.xml':return self.public(d,path)
+   if path.startswith('/static/'):
+    assets={'/static/portal.css':('portal.css','text/css; charset=utf-8'),'/static/garden.svg':('garden.svg','image/svg+xml')}
+    if path not in assets:return self.send('Não encontrado',404,'text/plain')
+    filename,mime=assets[path];return self.send((ROOT/'static'/filename).read_text(),ctype=mime)
+   if path in ('/','/sitemap.xml','/ads.txt') or path.startswith('/portal'):return self.public(d,path)
+   if path in ('/admin','/anuncios') and self.s and self.s['role']!='admin':return self.send(self.page('Acesso restrito','<p>Esta área é exclusiva de administradores.</p>'),403)
+   if path=='/login' and self.s:return self.redirect('/admin' if self.s['role']=='admin' else '/editorial')
    if not self.s:return self.send(self.page('Entre na sua central',card('Bem-vindo de volta','<p>Planeje, escreva e publique com cuidado editorial.</p><form action="/login" method="post">'+field('email','E-mail','email')+field('password','Senha','password')+'<button>Entrar</button></form>')))
    try:body,title=self.admin(d,path);self.send(self.page(title,body,path))
    except (ValueError,TypeError) as e:self.send(self.page('Não foi possível abrir',card('Verifique o endereço',esc(e))),400)
  def admin(self,d,path):
-  if path=='/':
+  if path=='/admin':
    n=lambda sql:d.execute(sql).fetchone()[0]
    body='<div class="hero"><span class="eyebrow">Uma casa de boas ideias</span><h2>Conteúdo útil. Fontes claras. Publicação consciente.</h2><p>Decoração acessível e plantas para espaços pequenos.</p><a class="button" href="/oportunidades">Explorar oportunidades ↗</a></div><div class="grid">'
    for label,val in [('Oportunidades',n('SELECT count(*) FROM opportunities')),('Em produção',n("SELECT count(*) FROM contents WHERE state!='publicado'")),('Publicações',n('SELECT count(*) FROM publications')),('Custo confirmado · USD',n("SELECT coalesce(sum(cost),0) FROM runs WHERE cost_kind='confirmado'"))]:body+=card(label,f'<div class="stat">{val}</div>')
@@ -105,6 +113,15 @@ class Handler(BaseHTTPRequestHandler):
    body+=card('Autorizar computador',self.form('pair_approve',field('code','Código mostrado no conector',value=code),'Autorizar este computador')+'<p>Autorize apenas o código da janela que você mesmo abriu. Um computador autorizado pode ler as pautas na fila e devolver rascunhos, mas não aprovar nem publicar.</p>')
    body+=card('Computadores conectados',self.table(d,'SELECT id,label,created,seen,revoked FROM connector_devices ORDER BY id DESC')+self.form('device_revoke',field('device_id','ID do computador a desconectar','number'),'Revogar acesso'))
    return body,'Conector ChatGPT Plus'
+  if path=='/anuncios':
+   config=portal.site(d)
+   body=card('Banner da página inicial',self.form('portal_site',field('hero_label','Chamada acima do título',value=config['hero_label'])+field('hero_title','Título do banner',value=config['hero_title'])+field('hero_text','Texto do banner','textarea',config['hero_text'])+field('hero_cta','Texto do botão',value=config['hero_cta'])+field('hero_image','URL HTTPS da imagem (opcional; vazio usa ilustração do site)',value=config['hero_image'])+field('hero_alt','Descrição acessível da imagem',value=config['hero_alt'])+field('adsense_client','ID da conta AdSense · ca-pub- + 16 dígitos',value=config['adsense_client']),'Salvar banner e conta AdSense'))
+   body+='<p class="warn">Configure cada posição abaixo. Cursos e campanhas próprias usam a identidade do site. Para Google AdSense, informe sua conta e a unidade real: a exibição depende da aprovação e disponibilidade do Google. O layout padroniza a moldura; não altera os anúncios servidos pelo Google.</p>'
+   for slot,label in portal.SLOTS.items():
+    ad=portal.ad_config(d,slot)
+    fields=f'<input type="hidden" name="slot" value="{slot}">'+select('mode','Exibição',[('disabled','Desativado'),('placeholder','Espaço reservado'),('google','Google AdSense'),('course','Curso / campanha própria')],ad['mode'])+field('google_slot','ID da unidade Google · 10 dígitos',value=ad['google_slot'])+field('title','Título do curso ou campanha',value=ad['title'])+field('description','Descrição','textarea',ad['description'])+field('url','Link HTTPS de destino',value=ad['url'])+field('button','Texto do botão',value=ad['button'])+field('image','URL HTTPS da imagem (opcional)',value=ad['image'])+field('alt','Texto alternativo da imagem',value=ad['alt'])
+    body+=card(label,self.form('portal_ad',fields,'Salvar esta posição'))
+   return body,'Portal e anúncios'
   if path=='/configuracoes':
    body=card('Política de operação','<p>Publicação automática desabilitada. Destino: portal interno. Fuso: America/Sao_Paulo. ChatGPT Plus disponível via conector local autorizado. API paga não configurada. Credenciais do ChatGPT ficam no computador.</p>')
    if self.s['role']=='admin':
@@ -119,21 +136,18 @@ class Handler(BaseHTTPRequestHandler):
  def run_table(self,d,failed=False):return self.table(d,'SELECT agent,status,instruction_version,provider,cost,cost_kind,error,created FROM runs '+("WHERE status='falha' " if failed else '')+'ORDER BY id DESC LIMIT 50')
  def public(self,d,path):
   if path=='/sitemap.xml':
-   host='http://'+self.headers.get('Host','localhost:8000')
-   return self.send('<?xml version="1.0"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'+''.join('<url><loc>'+esc(host+'/portal/'+r[0])+'</loc></url>' for r in d.execute('SELECT c.slug FROM publications p JOIN contents c ON c.id=p.content_id'))+'</urlset>',ctype='application/xml')
-  body='<p><a href="/portal">Início</a> · <a href="/portal/sobre">Sobre e política editorial</a></p>'
-  if path=='/portal/sobre':body+=card('Nossa política','<p>Decoração acessível e plantas para espaços pequenos. Conteúdos passam por revisão e aprovação humana. Referências e autoria constam nos artigos. Relações comerciais devem ser declaradas no texto. Imagens de IA são ilustrações, nunca evidência de testes ou projetos reais.</p>')
-  elif path=='/portal':
-   query=urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query);term=query.get('q',[''])[0];cat=query.get('categoria',[''])[0]
-   body+='<form><input name="q" placeholder="Buscar no portal" value="'+esc(term)+'"><button>Buscar</button></form><p>'+''.join('<a class="tag" href="/portal?categoria='+urllib.parse.quote(r[0])+'">'+esc(r[0])+'</a>' for r in d.execute('SELECT DISTINCT o.category FROM publications p JOIN contents c ON c.id=p.content_id JOIN opportunities o ON o.id=c.opportunity_id'))+'</p><div class="grid">'
-   rows=d.execute("SELECT v.title,v.body,c.slug,o.category FROM publications p JOIN versions v ON v.id=p.version_id JOIN contents c ON c.id=p.content_id JOIN opportunities o ON o.id=c.opportunity_id WHERE (v.title LIKE ? OR v.body LIKE ?) AND (?='' OR o.category=?)",('%'+term+'%','%'+term+'%',cat,cat)).fetchall()
-   body+=''.join(card(r['title'],'<span class="tag">'+esc(r['category'])+'</span><p>'+esc(r['body'][:180])+'…</p><a href="/portal/'+esc(r['slug'])+'">Ler artigo →</a>') for r in rows)+'</div>'
-   if not rows:body+='<p>Nenhum conteúdo publicado para esta busca.</p>'
-  else:
-   r=d.execute('SELECT v.*,p.created published,u.email,o.sources FROM publications p JOIN contents c ON c.id=p.content_id JOIN versions v ON v.id=p.version_id JOIN users u ON u.id=v.author JOIN opportunities o ON o.id=c.opportunity_id WHERE c.slug=?',(path.split('/')[-1],)).fetchone()
-   if not r:return self.send(self.page('Artigo não encontrado',body),404)
-   body+='<article><h2>'+esc(r['title'])+'</h2><small>Por '+esc(r['email'])+' · Atualizado '+esc(r['published'])+'</small><pre>'+esc(r['body'])+'</pre><h3>Referências</h3><pre>'+esc(r['sources'])+'</pre></article>'
-  return self.send(self.page('Casa bonita e verde',body))
+   locations=[portal.origin()+'/',portal.origin()+'/portal/sobre']+[portal.origin()+'/portal/'+urllib.parse.quote(row[0],safe='') for row in d.execute('SELECT c.slug FROM publications p JOIN contents c ON c.id=p.content_id')]
+   return self.send('<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'+''.join('<url><loc>'+esc(link)+'</loc></url>' for link in locations)+'</urlset>',ctype='application/xml; charset=utf-8')
+  if path=='/ads.txt':
+   client=portal.site(d)['adsense_client']
+   text='google.com, '+client[3:]+', DIRECT, f08c47fec0942fa0\n' if re.fullmatch(r'ca-pub-\d{16}',client) else '# Nenhuma conta AdSense configurada.\n'
+   return self.send(text,ctype='text/plain; charset=utf-8')
+  query=urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
+  body,title,canonical,status=portal.render(d,path,query)
+  nonce=secrets.token_urlsafe(24)
+  csp="default-src 'self'; img-src 'self' https: data:; style-src 'self' 'unsafe-inline'; object-src 'none'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'"
+  if portal.google_enabled(d):csp="object-src 'none'; script-src 'nonce-"+nonce+"' 'unsafe-inline' 'unsafe-eval' 'strict-dynamic' https:; base-uri 'none'; frame-ancestors 'none'; form-action 'self'; style-src 'self' 'unsafe-inline' https:; img-src 'self' https: data:; frame-src https:; connect-src 'self' https:; font-src 'self' https: data:"
+  return self.send(portal.document(d,body,title,canonical,nonce),status,csp=csp)
  def connector_api(self):
   try:
    size=int(self.headers.get('Content-Length','0'))
@@ -176,14 +190,14 @@ class Handler(BaseHTTPRequestHandler):
     attempts=LOGIN_ATTEMPTS.get(self.client_address[0],[]);attempts=[t for t in attempts if t>time.time()-300]
     LOGIN_ATTEMPTS[self.client_address[0]]=attempts+[time.time()]
     if len(attempts)>=10:return self.send('Muitas tentativas. Aguarde cinco minutos.',429)
-    if not user or not hmac.compare_digest(password(f('password'),user['password'].split(':')[0]),user['password']):return self.send('Credenciais inválidas. <a href="/">Voltar</a>',401)
-    token=secrets.token_urlsafe(32);d.execute('INSERT INTO sessions VALUES(?,?,?,?)',(token,user['id'],secrets.token_urlsafe(32),time.time()+28800));d.commit();return self.redirect('/',f'session={token}; HttpOnly; SameSite=Strict; Path=/'+('; Secure' if os.environ.get('COOKIE_SECURE')=='1' else ''))
+    if not user or not hmac.compare_digest(password(f('password'),user['password'].split(':')[0]),user['password']):return self.send('Credenciais inválidas. <a href="/admin">Voltar</a>',401)
+    token=secrets.token_urlsafe(32);d.execute('INSERT INTO sessions VALUES(?,?,?,?)',(token,user['id'],secrets.token_urlsafe(32),time.time()+28800));d.commit();return self.redirect('/admin' if user['role']=='admin' else '/editorial',f'session={token}; HttpOnly; SameSite=Strict; Path=/'+('; Secure' if os.environ.get('COOKIE_SECURE')=='1' else ''))
    self.s=self.session(d)
    if not self.s:return self.send('Autenticação necessária',401)
    if not hmac.compare_digest(f('csrf'),self.s['csrf']):return self.send('CSRF inválido',403)
    origin=self.headers.get('Origin')
    if origin and urllib.parse.urlsplit(origin).netloc!=self.headers.get('Host'):return self.send('Origem inválida',403)
-   action=f('action');u=self.s['user_id'];c=int(f('id','0') or 0);dest='/'
+   action=f('action');u=self.s['user_id'];c=int(f('id','0') or 0);dest='/admin'
    try:
     role=self.s['role'];allowed={'admin':None,'editor':{'opportunity','op_decision','brief','version','asset','metrics','agent','plus_enqueue','plus_control'},'reviewer':{'review','agent','plus_enqueue','plus_control'}}
     if allowed[role] is not None and action not in allowed[role]:return self.send('Permissão insuficiente',403)
@@ -243,6 +257,8 @@ class Handler(BaseHTTPRequestHandler):
       key=hashlib.sha256(json.dumps(r,sort_keys=True).encode()).hexdigest()
       d.execute('INSERT INTO metrics(content_id,source,start,"end",name,value,kind,import_key,created) VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT DO NOTHING',(cid,r['source'],str(start),str(end),r['name'],value,r['kind'],key,now()))
      dest='/analytics'
+    elif action=='portal_site':portal.save_site(d,{k:f(k) for k in portal.DEFAULT_SITE});dest='/anuncios'
+    elif action=='portal_ad':portal.save_ad(d,f('slot'),{k:f(k) for k in portal.DEFAULT_AD});dest='/anuncios'
     elif action=='settings':
      weights=json.loads(f('weights'));ranking([None]*5,weights)
      if float(f('budget'))<0:raise ValueError('Limite inválido.')

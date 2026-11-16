@@ -115,3 +115,21 @@ A página `/conector` do painel permite autorizar ou revogar computadores. Parea
 Tarefas são criadas pela página do conteúdo, consumidas uma por vez pelo conector e vinculadas ao snapshot exato. Redação cria uma nova versão com pendência explícita de conferência humana. Revisão do modelo é um parecer e não é uma aprovação. Alterações no conteúdo/brief/fontes durante a execução impedem aplicar o resultado antigo. Resultado enviado novamente não duplica versões. Um computador pode ser revogado a qualquer momento.
 
 Migrations incrementais `002_connector.sql` (SQLite local) e `postgres/002_connector.sql` criam fila e registros de pareamento. Os testes de login usam chaves sintéticas, validam OIDC/nonce/audience e simulam o stream; não consomem Plus nem criam API keys. A execução real do login e o DPAPI precisam ser confirmados no Windows do usuário.
+
+## Portal público, banner e anúncios
+
+A raiz `/` agora é o site/blog público para todos os visitantes, inclusive administradores autenticados. A antiga Visão geral está em `/admin`, com autenticação e permissão de administrador. Editores e revisores entram na Central editorial. Os endereços existentes de artigos em `/portal/<slug>` e do conector continuam funcionando; `/portal` também abre o portal público.
+
+O portal inclui banner inicial com ilustração editorial própria, oito categorias, busca, filtro exclusivo de notícias, listagem de publicações, texto integral com formatação segura, referências, data, relacionados por categoria e páginas institucionais. Somente a versão referenciada em `publications` aparece no site: rascunhos e mudanças não publicadas continuam privados. Não foram criadas notícias de demonstração nem publicações automáticas para preencher o layout.
+
+Como administrador, abra `/anuncios` (**Portal e anúncios**) para editar o título, texto, botão e imagem HTTPS opcional do banner. Também há seis posições: faixa superior do início, entre publicações, barra lateral, antes do artigo, dentro do artigo e fim do artigo. A posição lateral é compartilhada entre início e artigos.
+
+Cada posição pode ser **Desativado**, **Espaço reservado**, **Google AdSense** ou **Curso / campanha própria**. Campanhas próprias permitem título, descrição, botão, link HTTPS e imagem HTTPS com texto alternativo. As molduras seguem as cores do site e sempre identificam Publicidade. Os criativos servidos pelo Google não são modificados nem apresentados como conteúdo editorial.
+
+Para ativar Google, informe o ID real `ca-pub-` seguido de 16 dígitos e a unidade de 10 dígitos em cada posição. Sem isso, não há anúncio real nem solicitação ao Google. A aprovação do site, configuração da conta e disponibilidade de anúncios dependem do Google. O ID também gera `/ads.txt`. Não são aceitos scripts/HTML colados livremente no painel. As configurações são persistidas no banco e exigem administrador e CSRF.
+
+O Google usa o script oficial assíncrono. Quando anúncios Google estão ativos, apenas as páginas públicas adotam a CSP com nonce e strict-dynamic conforme orientação oficial; o painel mantém sua política restrita. Referência consultada: https://support.google.com/adsense/answer/16283098. A integração não foi verificada com conta ou anúncios reais, pois os identificadores não foram fornecidos. Os testes inspecionam a geração segura do código, sem executar anúncios ou registrar impressões.
+
+`portal.py` concentra composição pública e configuração; `static/portal.css` contém o layout responsivo; `static/garden.svg` é uma ilustração vetorial original, não uma foto de projeto executado. As configurações usam a tabela `settings` existente e não exigem migração de esquema. O sitemap e as canônicas usam `PUBLIC_SITE_URL`, `RENDER_EXTERNAL_URL` ou a origem padrão do projeto. HTML de artigos é escapado; há suporte limitado a títulos, parágrafos, listas, negrito e links Markdown HTTPS.
+
+Verificação inclui fluxo HTTP, exclusividade do dashboard para administradores, persistência/validação de anúncios, CSRF, isolamento entre versão publicada e rascunho, leitura integral e CSP/nonce. A infraestrutura de controle visual do navegador não está disponível neste ambiente; não houve inspeção visual automatizada.

@@ -6,6 +6,7 @@ import app
 from test_domain import Workflow as _Workflow
 from test_http import EndToEnd as _HTTP
 from test_connector import Backend as _ConnectorBackend
+from test_portal import PublicPortal as _PublicPortal
 URL=os.environ.get('TEST_POSTGRES_URL')
 def reset():
  with app.connect(URL) as d:
@@ -37,4 +38,10 @@ class PostgresHTTP(_HTTP):
 class PostgresConnector(_ConnectorBackend):
  def setUp(self):
   reset();self.d=app.connect(URL);self.seed()
-del _Workflow,_HTTP,_ConnectorBackend
+@unittest.skipUnless(URL,'TEST_POSTGRES_URL não configurada')
+class PostgresPortal(_PublicPortal):
+ @classmethod
+ def setUpClass(cls):PostgresHTTP.setUpClass.__func__(cls)
+ @classmethod
+ def tearDownClass(cls):PostgresHTTP.tearDownClass.__func__(cls)
+del _Workflow,_HTTP,_ConnectorBackend,_PublicPortal
