@@ -43,6 +43,9 @@ class Handler(BaseHTTPRequestHandler):
  def do_GET(self):
   with connect(DB) as d:
    self.s=self.session(d);path=urllib.parse.urlsplit(self.path).path
+   if path=='/healthz':
+    d.execute('SELECT 1 FROM users LIMIT 1').fetchone()
+    return self.send('ok',ctype='text/plain; charset=utf-8')
    if path.startswith('/portal') or path=='/sitemap.xml':return self.public(d,path)
    if not self.s:return self.send(self.page('Entre na sua central',card('Bem-vindo de volta','<p>Planeje, escreva e publique com cuidado editorial.</p><form action="/login" method="post">'+field('email','E-mail','email')+field('password','Senha','password')+'<button>Entrar</button></form>')))
    try:body,title=self.admin(d,path);self.send(self.page(title,body,path))
@@ -194,14 +197,30 @@ class Handler(BaseHTTPRequestHandler):
     d.execute('INSERT INTO runs(content_id,agent,instruction_version,provider,status,error,cost,cost_kind,created) VALUES(?,?,?,?,?,?,?,?,?)',(c if d.execute('SELECT 1 FROM contents WHERE id=?',(c,)).fetchone() else None,action,'v1','manual','falha',str(e),0,'confirmado',now()));d.commit()
     return self.send(self.page('Operação não concluída','<p class="error">'+esc(e)+'</p><a href="/editorial">Voltar à central</a>'),400)
 LOGIN_ATTEMPTS={}
+def bootstrap_admin(d):
+ # Só cria a primeira conta; reinícios não alteram senha nem usuários existentes.
+ if d.execute('SELECT 1 FROM users LIMIT 1').fetchone():return
+ email=os.environ.get('ADMIN_EMAIL','').strip().lower()
+ pw=os.environ.get('ADMIN_PASSWORD','')
+ if not email and not pw:return
+ if '@' not in email or len(pw)<12:raise ValueError('Configure ADMIN_EMAIL e ADMIN_PASSWORD com pelo menos 12 caracteres.')
+ d.execute('INSERT INTO users(email,password,role) VALUES(?,?,?)',(email,password(pw),'admin'))
+ d.commit()
 def main():
- import argparse,getpass
- p=argparse.ArgumentParser();p.add_argument('command',choices=['init','serve']);p.add_argument('--email',default='admin@local');p.add_argument('--port',type=int,default=8000);args=p.parse_args()
+ import argparse,getpass,signal,threading
+ p=argparse.ArgumentParser();p.add_argument('command',choices=['init','serve']);p.add_argument('--email',default='admin@local');p.add_argument('--port',type=int,default=int(os.environ.get('PORT','8000')));p.add_argument('--host',default=os.environ.get('HOST','127.0.0.1'));args=p.parse_args()
  with connect(DB) as d:
   migrate(d)
   if args.command=='init':
    pw=getpass.getpass('Senha inicial (12+ caracteres): ')
    if len(pw)<12:raise SystemExit('Senha curta.')
    d.execute('INSERT INTO users(email,password,role) VALUES(?,?,?)',(args.email.lower(),password(pw),'admin'));d.commit();print('Administrador criado.');return
- print(f'Abra http://127.0.0.1:{args.port}');ThreadingHTTPServer(('127.0.0.1',args.port),Handler).serve_forever()
+  bootstrap_admin(d)
+ server=ThreadingHTTPServer((args.host,args.port),Handler)
+ server.daemon_threads=True
+ def stop(signum,frame):threading.Thread(target=server.shutdown,daemon=True).start()
+ signal.signal(signal.SIGTERM,stop)
+ print(f'Servidor iniciado em {args.host}:{args.port}',flush=True)
+ try:server.serve_forever()
+ finally:server.server_close()
 if __name__=='__main__':main()

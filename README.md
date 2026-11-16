@@ -75,3 +75,13 @@ A evolução recomendada separa transporte do domínio, adiciona migrations incr
 ## Verificação desta entrega
 
 18 testes automatizados passaram, incluindo fluxo HTTP completo de oportunidade até publicação e métricas, bloqueios, permissões, CSRF, imutabilidade das versões e idempotência. Testes usam bancos temporários; nenhuma publicação de demonstração é criada no banco de operação. Sem QA visual em navegador.
+
+## Render
+
+`render.yaml` define um serviço Python no projeto `casa-verde-editorial`, ambiente `Production`, região Virginia, uma instância no plano `0.5c-512mb` e disco persistente de 1 GB em `/var/data`. Esse plano é pago; revisar o custo no Render antes de aplicar. Não usar SQLite em filesystem efêmero para dados reais. A migração roda no início do processo, quando o disco está montado, nunca no build.
+
+O build executa os testes. `HOST=0.0.0.0` e `PORT` fornecida pelo Render permitem roteamento. `/healthz` verifica acesso ao esquema. Cookies são Secure em HTTPS. SIGTERM encerra a aceitação de requisições; manter apenas uma instância para o SQLite local.
+
+Definir `ADMIN_EMAIL` e `ADMIN_PASSWORD` (12+ caracteres) exclusivamente no Environment do serviço. Só são usados para criar a primeira conta em banco vazio; redeploy não redefine a senha. Depois de criar e testar a conta, remover `ADMIN_PASSWORD` do Environment. Nunca registrar senha em código, terminal ou logs.
+
+O servidor HTTP deste MVP continua sendo o servidor da biblioteca padrão Python, apropriado para validação inicial controlada atrás do proxy TLS do Render. A migração para servidor/framework de produção, limitação persistente de login e backups SQLite consistentes continua necessária antes de operação pública de maior escala. A conexão do repositório não ativa provedores de IA nem remove os limites documentados.
