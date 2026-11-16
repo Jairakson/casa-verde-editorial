@@ -5,6 +5,7 @@ import os,unittest,threading
 import app
 from test_domain import Workflow as _Workflow
 from test_http import EndToEnd as _HTTP
+from test_connector import Backend as _ConnectorBackend
 URL=os.environ.get('TEST_POSTGRES_URL')
 def reset():
  with app.connect(URL) as d:
@@ -32,4 +33,8 @@ class PostgresHTTP(_HTTP):
  @classmethod
  def tearDownClass(cls):cls.server.shutdown();cls.server.server_close();app.DB=cls.old_db
 # Evita que unittest colete novamente as classes importadas.
-del _Workflow,_HTTP
+@unittest.skipUnless(URL,'TEST_POSTGRES_URL não configurada')
+class PostgresConnector(_ConnectorBackend):
+ def setUp(self):
+  reset();self.d=app.connect(URL);self.seed()
+del _Workflow,_HTTP,_ConnectorBackend

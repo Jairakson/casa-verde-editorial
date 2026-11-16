@@ -55,8 +55,8 @@ content_id,source,start,end,name,value,kind
 
 Esta é uma base funcional local; não conclui todos os requisitos da plataforma solicitada.
 
-- **IA:** nenhum provedor/modelo externo conectado. Não gera artigos factuais por IA. Pesquisa conectada, checagem remota de evidências, redação por modelo e avaliação semântica ainda precisam de adaptadores, segredos e configuração autorizada. Não há seletor de modelo funcional.
-- **Execução:** assistentes locais curtos são síncronos e idempotentes; fila persistente, cancelamento, timeout, retries, limites por execução/período e contabilização por tokens ainda não implementados. O limite em Configurações é registrado para evolução e não aplicado a provedores, pois estes estão desabilitados.
+- **IA:** conexão opcional com ChatGPT Plus pelo conector pessoal Windows. Login e autorização reais devem ser feitos pelo usuário no computador. Sem conector ativo, os assistentes continuam locais. Seleção de modelos consulta a conta autorizada. Pesquisa web e conferência remota de fontes não estão habilitadas.
+- **Execução:** assistentes determinísticos são síncronos. ChatGPT Plus usa fila persistente no painel, concessões com prazo, cancelamento, retomada limitada e entregas idempotentes. Tokens são registrados quando fornecidos; preço por execução fica indisponível. Limites monetários da página Configurações não controlam a franquia Plus; essa é gerenciada nas configurações oficiais do ChatGPT.
 - **Mídia:** briefs/prompts/storyboard são entregues como pendentes. Não gera imagens, áudio nem vídeo, nem faz upload. Ativos obrigatórios pendentes bloqueiam publicação. Aprovação de mídia ainda não tem interface, portanto mantenha-os opcionais neste MVP ou conclua esse módulo antes de exigir mídia.
 - **Métricas:** importação manual funcional; sem GSC, GA4, afiliados ou redes conectados. Não calcula receita atribuída ou estimativas automáticas. Recomendações são orientações locais, não análise de IA.
 - **Editorial:** sem comentários, notificações, quadro arrastável, comparação visual de versões, consolidação automática, agendamento executável ou arquivamento. Datas planejadas são operacionais; publicar sempre exige ação manual.
@@ -104,4 +104,14 @@ A suíte `tests/test_postgres.py` valida migração, aprovação, versionamento,
 python -m unittest discover -s tests -v
 ```
 
-Sem `TEST_POSTGRES_URL`, 14 testes de PostgreSQL são explicitamente pulados e os 21 testes locais continuam ativos. Com um banco descartável PostgreSQL 16, todos os 35 testes foram executados. Não definir `DATABASE_URL` com um banco real para rodar a suíte; a aplicação usa essa variável em runtime.
+Sem `TEST_POSTGRES_URL`, os testes exclusivos de PostgreSQL são explicitamente pulados e os testes locais continuam ativos. A suíte atual foi executada também contra PostgreSQL 18 descartável, incluindo o conector. Não definir `DATABASE_URL` com um banco real para rodar a suíte; a aplicação usa essa variável em runtime.
+
+## ChatGPT Plus no Windows
+
+O conector pessoal está em `connector/`, com iniciador `Iniciar-Conector.bat`. O guia completo de instalação, pareamento, login oficial, seleção de modelos, execução e solução de problemas está em [connector/README.md](connector/README.md).
+
+A página `/conector` do painel permite autorizar ou revogar computadores. Pareamento exige uma sessão de administrador e CSRF; o token de dispositivo fica protegido no computador e apenas seu hash é salvo no servidor. APIs de fila aceitam exclusivamente o token limitado do computador, sem autorizar aprovação ou publicação. Tokens OpenAI nunca são enviados ao painel.
+
+Tarefas são criadas pela página do conteúdo, consumidas uma por vez pelo conector e vinculadas ao snapshot exato. Redação cria uma nova versão com pendência explícita de conferência humana. Revisão do modelo é um parecer e não é uma aprovação. Alterações no conteúdo/brief/fontes durante a execução impedem aplicar o resultado antigo. Resultado enviado novamente não duplica versões. Um computador pode ser revogado a qualquer momento.
+
+Migrations incrementais `002_connector.sql` (SQLite local) e `postgres/002_connector.sql` criam fila e registros de pareamento. Os testes de login usam chaves sintéticas, validam OIDC/nonce/audience e simulam o stream; não consomem Plus nem criam API keys. A execução real do login e o DPAPI precisam ser confirmados no Windows do usuário.

@@ -6,6 +6,7 @@ from zoneinfo import ZoneInfo
 from domain import *
 from agents import execute,INSTRUCTIONS
 from storage import INTEGRITY_ERRORS
+import connector_backend as bridge
 DB=os.environ.get('DATABASE_URL') or os.environ.get('DATABASE_PATH',str(ROOT/'editorial.db'))
 def esc(x):
  if isinstance(x,str) and re.match(r'^\d{4}-\d\d-\d\dT.*\+00:00$',x):
@@ -39,8 +40,8 @@ class Handler(BaseHTTPRequestHandler):
   return f'<form method="post" action="/action"><input type="hidden" name="action" value="{action}"><input type="hidden" name="csrf" value="{self.s["csrf"]}">'+body+f'<button>{label}</button></form>'
  def hidden(self,c):return f'<input type="hidden" name="id" value="{c}">'
  def page(self,title,body,tab=''):
-  nav=[('/','Visão geral'),('/oportunidades','Oportunidades'),('/editorial','Central editorial'),('/midia','Biblioteca de mídia'),('/calendario','Calendário'),('/analytics','Analytics'),('/agentes','Agentes e execuções'),('/configuracoes','Configurações'),('/portal','Ver portal')]
-  return '<!doctype html><html lang="pt-BR"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>'+esc(title)+' · Casa & Verde</title><style>'+CSS+'</style><aside><h1>casa & verde<span style="color:#b5cb85">.</span></h1><small>CENTRAL EDITORIAL</small><nav>'+''.join(f'<a class="{"active" if tab==u else ""}" href="{u}">{l}</a>' for u,l in nav)+'</nav></aside><main><div class="top"><span class="eyebrow">Seu próximo conteúdo começa aqui</span><span class="muted">'+esc(self.s['email'] if getattr(self,'s',None) else 'Portal de casa e jardim')+'</span></div><h1>'+esc(title)+'</h1>'+body+'<footer>Casa bonita e verde · Horários: America/Sao_Paulo · Integrações externas não configuradas</footer></main></html>'
+  nav=[('/','Visão geral'),('/oportunidades','Oportunidades'),('/editorial','Central editorial'),('/midia','Biblioteca de mídia'),('/calendario','Calendário'),('/analytics','Analytics'),('/agentes','Agentes e execuções'),('/conector','Conector ChatGPT Plus'),('/configuracoes','Configurações'),('/portal','Ver portal')]
+  return '<!doctype html><html lang="pt-BR"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>'+esc(title)+' · Casa & Verde</title><style>'+CSS+'</style><aside><h1>casa & verde<span style="color:#b5cb85">.</span></h1><small>CENTRAL EDITORIAL</small><nav>'+''.join(f'<a class="{"active" if tab==u else ""}" href="{u}">{l}</a>' for u,l in nav)+'</nav></aside><main><div class="top"><span class="eyebrow">Seu próximo conteúdo começa aqui</span><span class="muted">'+esc(self.s['email'] if getattr(self,'s',None) else 'Portal de casa e jardim')+'</span></div><h1>'+esc(title)+'</h1>'+body+'<footer>Casa bonita e verde · Horários: America/Sao_Paulo · ChatGPT Plus: conector local opcional</footer></main></html>'
  def do_GET(self):
   with connect(DB) as d:
    self.s=self.session(d);path=urllib.parse.urlsplit(self.path).path
@@ -73,6 +74,7 @@ class Handler(BaseHTTPRequestHandler):
    body+=card('Brief editorial',self.form('brief',h+field('brief','Objetivo, público, intenção, estrutura, fontes obrigatórias, diferencial, links, CTA e cuidados','textarea',x['brief'])+field('responsible','Responsável',value=x['responsible'])+field('planned','Data planejada','datetime-local',x['planned'] or '')))
    body+=card('Texto e versões',self.form('version',h+field('title','Título',value=x['title'])+field('body','Texto em linguagem simples · inclua referências junto às afirmações','textarea',v['body'] if v else '')+field('claims','Afirmações pendentes de validação','textarea',v['claims'] if v else ''),'Salvar nova versão'))
    body+=card('Assistentes locais',self.form('agent',h+select('agent','Módulo',[(k,k.title()) for k in INSTRUCTIONS]),'Executar assistente')+'<p>Saídas estruturadas disponíveis em Agentes e execuções. Não substituem pesquisa ou revisão factual.</p>')
+   body+=card('ChatGPT Plus no seu computador',self.form('plus_enqueue',h+select('agent','Agente',[(k,k.title()) for k in INSTRUCTIONS]),'Enviar tarefa ao conector')+'<p>O conector precisa estar ligado e autorizado. Redação retorna como nova versão pendente de revisão. As demais entregas ficam em Agentes e execuções.</p>')
    body+=card('Revisão obrigatória',self.form('review',h+select('result','Parecer',[('ajustes','Ajustes necessários'),('bloqueado','Bloqueado por problema crítico'),('aprovado','Aprovado para avaliação humana')])+field('issues','Problemas: severidade, trecho, motivo, evidência, correção e especialista','textarea')+field('limitations','Fontes verificadas e limitações de acesso (obrigatório ao aprovar)','textarea')))
    body+=card('Aprovação e publicação', '<p>A aprovação vale apenas para a versão atual. Alterações exigem nova revisão e nova aprovação. Publicação manual no portal interno.</p><div class="actions">'+self.form('approve',h,'Aprovar versão exata')+self.form('publish',h,'Publicar no portal')+'</div>')
    history=d.execute('SELECT v.*,u.email FROM versions v JOIN users u ON u.id=v.author WHERE content_id=? ORDER BY number DESC',(c,)).fetchall()
@@ -88,13 +90,23 @@ class Handler(BaseHTTPRequestHandler):
    body+=card('Métricas importadas',self.table(d,'SELECT content_id,source,start,"end",name,value,kind,created FROM metrics ORDER BY id DESC'))
    body+=card('Importar CSV', '<p>Cabeçalho: content_id,source,start,"end",name,value,kind<br>Datas ISO (AAAA-MM-DD), kind: confirmado ou estimado. Uma linha por métrica e período. Reimportações idênticas são ignoradas.</p>'+self.form('metrics',field('csv','Cole o CSV','textarea')));return body,'Analytics'
   if path=='/agentes':
-   body='<p class="warn">Modo manual estruturado. Não há chamadas de IA, pesquisa conectada ou execução externa habilitada. Custos reais só são registrados quando comprovados.</p>'
+   body='<p class="warn">Assistentes locais são determinísticos. Tarefas enviadas ao conector usam ChatGPT Plus somente no computador autorizado; a disponibilidade depende da sua conta e dos limites do plano. Não há API paga configurada.</p>'
    body+=card('Módulos especializados',''.join('<span class="tag">'+a+' · instruções v1 · provedor pendente</span>' for a in ['Pesquisa','Estratégia','Redação','Imagens','Vídeo','Revisão','Desempenho']))
+   body+=card('Fila do ChatGPT Plus',self.table(d,'SELECT id,content_id,agent,state,attempts,model,error,created FROM connector_jobs ORDER BY id DESC LIMIT 50'))
+   body+=card('Controlar tarefa',self.form('plus_control',field('job_id','ID da tarefa','number')+select('operation','Ação',[('cancel','Cancelar'),('retry','Repetir falha ou cancelamento')]),'Aplicar'))
    body+=card('Execuções e falhas',self.run_table(d))
    body+=card('Entregas estruturadas',''.join('<details><summary>#'+str(r['id'])+' · '+esc(r['agent'])+' · conteúdo '+str(r['content_id'])+' · versão '+esc(r['version_id'])+'</summary><pre>'+esc(r['output'])+'</pre></details>' for r in d.execute('SELECT * FROM runs WHERE output IS NOT NULL ORDER BY id DESC LIMIT 50')))
    return body,'Agentes e execuções'
+  if path=='/conector':
+   if self.s['role']!='admin':return card('Acesso restrito','Somente administradores podem conectar computadores.'),'Conector ChatGPT Plus'
+   query=urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
+   code=query.get('codigo',[''])[0]
+   body=card('Seu Plus, no seu computador','<p>O conector Windows executa tarefas pelo login oficial do ChatGPT. As credenciais do ChatGPT permanecem protegidas no computador. Este painel recebe apenas resultados editoriais e dados de uso disponíveis.</p><ol><li>Baixe o projeto e extraia o ZIP.</li><li>Abra <b>Iniciar-Conector.bat</b>.</li><li>Confira o código exibido no computador e autorize abaixo.</li><li>Entre no ChatGPT e autorize o uso do seu plano na janela oficial.</li><li>Escolha um modelo e mantenha o conector aberto.</li></ol><p><a class="button" href="https://github.com/Jairakson/casa-verde-editorial/archive/refs/heads/main.zip">Baixar conector Windows</a> <a href="https://github.com/Jairakson/casa-verde-editorial/blob/main/connector/README.md">Instruções detalhadas</a></p><p>O uso compartilha os limites do seu Plus. Não habilita geração de imagem, vídeo ou pesquisa web neste conector. Aprovação e publicação continuam manuais.</p>')
+   body+=card('Autorizar computador',self.form('pair_approve',field('code','Código mostrado no conector',value=code),'Autorizar este computador')+'<p>Autorize apenas o código da janela que você mesmo abriu. Um computador autorizado pode ler as pautas na fila e devolver rascunhos, mas não aprovar nem publicar.</p>')
+   body+=card('Computadores conectados',self.table(d,'SELECT id,label,created,seen,revoked FROM connector_devices ORDER BY id DESC')+self.form('device_revoke',field('device_id','ID do computador a desconectar','number'),'Revogar acesso'))
+   return body,'Conector ChatGPT Plus'
   if path=='/configuracoes':
-   body=card('Política de operação','<p>Publicação automática desabilitada. Destino: portal interno. Fuso: America/Sao_Paulo. Provedores externos: não configurados. Nenhuma credencial é armazenada no navegador.</p>')
+   body=card('Política de operação','<p>Publicação automática desabilitada. Destino: portal interno. Fuso: America/Sao_Paulo. ChatGPT Plus disponível via conector local autorizado. API paga não configurada. Credenciais do ChatGPT ficam no computador.</p>')
    if self.s['role']=='admin':
     body+=card('Pesos e limites',self.form('settings',field('weights','Pesos na ordem demanda, busca, monetização, originalidade, aderência',value=d.execute("SELECT value FROM settings WHERE key='weights'").fetchone()[0])+field('budget','Limite por período em USD','number',d.execute("SELECT value FROM settings WHERE key='budget'").fetchone()[0])))
     body+=card('Novo usuário',self.form('user',field('email','E-mail','email')+field('password','Senha (mínimo 12 caracteres)','password')+select('role','Permissão',[(s,s) for s in ['editor','reviewer','admin']])))
@@ -122,7 +134,39 @@ class Handler(BaseHTTPRequestHandler):
    if not r:return self.send(self.page('Artigo não encontrado',body),404)
    body+='<article><h2>'+esc(r['title'])+'</h2><small>Por '+esc(r['email'])+' · Atualizado '+esc(r['published'])+'</small><pre>'+esc(r['body'])+'</pre><h3>Referências</h3><pre>'+esc(r['sources'])+'</pre></article>'
   return self.send(self.page('Casa bonita e verde',body))
+ def connector_api(self):
+  try:
+   size=int(self.headers.get('Content-Length','0'))
+   if not 0<size<=200000:return self.send('{"error":"Tamanho inválido"}',413,'application/json')
+   if self.headers.get('Origin'):return self.send('{"error":"Use o conector local"}',403,'application/json')
+   payload=json.loads(self.rfile.read(size))
+   if not isinstance(payload,dict):raise ValueError('Entrada JSON inválida.')
+   path=urllib.parse.urlsplit(self.path).path
+   with connect(DB) as d:
+    d.execute('BEGIN IMMEDIATE')
+    if path=='/api/connector/pair/start':
+     attempts=PAIR_ATTEMPTS.get(self.client_address[0],[]);attempts=[t for t in attempts if t>time.time()-600]
+     if len(attempts)>=10:return self.send('{"error":"Aguarde dez minutos para parear novamente"}',429,'application/json')
+     PAIR_ATTEMPTS[self.client_address[0]]=attempts+[time.time()]
+     result=bridge.start_pairing(d)
+    elif path=='/api/connector/pair/poll':result=bridge.poll_pairing(d,str(payload.get('device_code','')))
+    else:
+     auth=self.headers.get('Authorization','')
+     device=bridge.authenticate(d,auth[7:] if auth.startswith('Bearer ') else '')
+     if not device:return self.send('{"error":"Computador não autorizado"}',401,'application/json')
+     if path=='/api/connector/next':result=bridge.claim(d,device)
+     elif path in ('/api/connector/status','/api/connector/complete','/api/connector/fail'):
+      jid=int(payload.get('job_id',0));lease=str(payload.get('lease',''))
+      if path.endswith('/status'):result=bridge.status(d,device,jid,lease)
+      elif path.endswith('/complete'):result=bridge.complete(d,device,jid,lease,payload.get('result'),payload.get('model'),payload.get('usage'))
+      else:result=bridge.fail(d,device,jid,lease,payload.get('error','Falha no conector'))
+     else:return self.send('{"error":"Rota não encontrada"}',404,'application/json')
+    d.commit();return self.send(json.dumps(result,ensure_ascii=False),ctype='application/json; charset=utf-8')
+  except (ValueError,KeyError,TypeError)+INTEGRITY_ERRORS as error:
+   return self.send(json.dumps({'error':str(error)[:500]},ensure_ascii=False),400,'application/json; charset=utf-8')
  def do_POST(self):
+  if urllib.parse.urlsplit(self.path).path.startswith('/api/connector/'):
+   return self.connector_api()
   if int(self.headers.get('Content-Length','0'))>1_000_000:return self.send('Entrada muito grande',413)
   data=urllib.parse.parse_qs(self.rfile.read(int(self.headers.get('Content-Length','0'))).decode(),keep_blank_values=True);f=lambda k,default='':data.get(k,[default])[0]
   with connect(DB) as d:
@@ -141,7 +185,7 @@ class Handler(BaseHTTPRequestHandler):
    if origin and urllib.parse.urlsplit(origin).netloc!=self.headers.get('Host'):return self.send('Origem inválida',403)
    action=f('action');u=self.s['user_id'];c=int(f('id','0') or 0);dest='/'
    try:
-    role=self.s['role'];allowed={'admin':None,'editor':{'opportunity','op_decision','brief','version','asset','metrics','agent'},'reviewer':{'review','agent'}}
+    role=self.s['role'];allowed={'admin':None,'editor':{'opportunity','op_decision','brief','version','asset','metrics','agent','plus_enqueue','plus_control'},'reviewer':{'review','agent','plus_enqueue','plus_control'}}
     if allowed[role] is not None and action not in allowed[role]:return self.send('Permissão insuficiente',403)
     d.execute('BEGIN IMMEDIATE')
     if action=='opportunity':
@@ -169,6 +213,22 @@ class Handler(BaseHTTPRequestHandler):
      if f('result')=='aprovado' and out['problemas']:raise ValueError('Assistente revisor identificou bloqueios: '+json.dumps(out['problemas'],ensure_ascii=False))
      review(d,c,u,f('result'),f('issues'),f('limitations'));dest=f'/conteudo/{c}'
     elif action=='agent':execute(d,c,f('agent'));dest='/agentes'
+    elif action=='plus_enqueue':
+     if role=='reviewer' and f('agent')!='revisao':raise ValueError('Revisor só pode solicitar revisão.')
+     bridge.enqueue(d,c,f('agent'),u);dest='/agentes'
+    elif action=='plus_control':
+     jid=int(f('job_id'));job=d.execute('SELECT * FROM connector_jobs WHERE id=?',(jid,)).fetchone()
+     if not job or (role!='admin' and job['owner_id']!=u):raise ValueError('Tarefa não autorizada.')
+     if f('operation')=='cancel' and job['state'] in ('queued','leased'):
+      d.execute("UPDATE connector_jobs SET state='cancelled',error='Cancelada por usuário',finished=? WHERE id=?",(now(),jid))
+     elif f('operation')=='retry' and job['state'] in ('failed','cancelled'):
+      if bridge.fingerprint(bridge.snapshot(d,job['content_id']))!=job['fingerprint']:raise ValueError('Conteúdo mudou. Envie uma nova tarefa pela página do conteúdo.')
+      d.execute("UPDATE connector_jobs SET state='queued',device_id=NULL,lease_hash=NULL,lease_expires=NULL,attempts=0,error=NULL WHERE id=?",(jid,))
+     else:raise ValueError('Ação indisponível para o estado atual.')
+     audit(d,u,'plus_control',jid,f('operation'));dest='/agentes'
+    elif action=='pair_approve':bridge.approve_pairing(d,f('code'),u);dest='/conector'
+    elif action=='device_revoke':
+     d.execute('UPDATE connector_devices SET revoked=1 WHERE id=?',(int(f('device_id')),));dest='/conector'
     elif action=='approve':approve(d,c,u);dest=f'/conteudo/{c}'
     elif action=='publish':publish(d,c,u);dest='/portal'
     elif action=='asset':
@@ -198,6 +258,7 @@ class Handler(BaseHTTPRequestHandler):
     d.execute('INSERT INTO runs(content_id,agent,instruction_version,provider,status,error,cost,cost_kind,created) VALUES(?,?,?,?,?,?,?,?,?)',(c if d.execute('SELECT 1 FROM contents WHERE id=?',(c,)).fetchone() else None,action,'v1','manual','falha',str(e),0,'confirmado',now()));d.commit()
     return self.send(self.page('Operação não concluída','<p class="error">'+esc(e)+'</p><a href="/editorial">Voltar à central</a>'),400)
 LOGIN_ATTEMPTS={}
+PAIR_ATTEMPTS={}
 def repair_build_bootstrap(d,email,pw):
  # Repara apenas a conta exata criada pelo teste da primeira implantação.
  # Preserva ID/referências e revoga sessões; não altera contas de usuários reais.

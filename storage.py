@@ -38,12 +38,16 @@ def migrate(d):
  if getattr(d,'postgres',False):
   d.execute('SELECT pg_advisory_xact_lock(68194321)')
   d.execute('CREATE TABLE IF NOT EXISTS schema_migrations(version INTEGER PRIMARY KEY)')
-  if not d.execute('SELECT 1 FROM schema_migrations WHERE version=1').fetchone():
-   for sql in (ROOT/'migrations/postgres/001_initial.sql').read_text().split(';'):
-    if sql.strip():d.execute(sql)
-   d.execute('INSERT INTO schema_migrations VALUES(1)')
+  for version,name in [(1,'001_initial.sql'),(2,'002_connector.sql')]:
+   if not d.execute('SELECT 1 FROM schema_migrations WHERE version=?',(version,)).fetchone():
+    for sql in (ROOT/'migrations/postgres'/name).read_text().split(';'):
+     if sql.strip():d.execute(sql)
+    d.execute('INSERT INTO schema_migrations VALUES(?)',(version,))
   d.commit()
- elif d.execute('PRAGMA user_version').fetchone()[0]==0:d.executescript((ROOT/'migrations/001_initial.sql').read_text())
+ else:
+  version=d.execute('PRAGMA user_version').fetchone()[0]
+  if version==0:d.executescript((ROOT/'migrations/001_initial.sql').read_text());version=1
+  if version==1:d.executescript((ROOT/'migrations/002_connector.sql').read_text())
 try:
  import psycopg
  INTEGRITY_ERRORS=(sqlite3.IntegrityError,psycopg.IntegrityError)

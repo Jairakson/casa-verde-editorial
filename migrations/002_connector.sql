@@ -1,0 +1,4 @@
+CREATE TABLE connector_pairings(device_hash TEXT PRIMARY KEY,user_code TEXT UNIQUE,owner_id INTEGER REFERENCES users,expires REAL,claimed INTEGER DEFAULT 0);
+CREATE TABLE connector_devices(id INTEGER PRIMARY KEY,label TEXT,owner_id INTEGER REFERENCES users,token_hash TEXT UNIQUE,created TEXT,seen TEXT,revoked INTEGER DEFAULT 0);
+CREATE TABLE connector_jobs(id INTEGER PRIMARY KEY,owner_id INTEGER REFERENCES users,content_id INTEGER REFERENCES contents,version_id INTEGER REFERENCES versions,agent TEXT,instruction_version TEXT,instructions TEXT,payload TEXT,fingerprint TEXT,idempotency TEXT UNIQUE,state TEXT DEFAULT 'queued',device_id INTEGER REFERENCES connector_devices,lease_hash TEXT,lease_expires REAL,attempts INTEGER DEFAULT 0,model TEXT,output TEXT,error TEXT,created TEXT,finished TEXT,run_id INTEGER REFERENCES runs);
+PRAGMA user_version=2;

@@ -1,1 +1,4 @@
 psycopg[binary]==3.2.13
+
+# Dependências do conector para testes de autenticação e compatibilidade.
+-r connector/requirements.txt
